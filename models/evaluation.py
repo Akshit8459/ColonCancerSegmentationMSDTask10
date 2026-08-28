@@ -35,15 +35,17 @@ def run_sliding_window(model, image, patch_size=(64, 128, 128), stride=0.75, dev
 
     def _single_pass(img_tensor):
         with torch.no_grad():
-            with torch.amp.autocast('cuda', enabled=True):
-                return sliding_window_inference(
-                    inputs=img_tensor,
-                    roi_size=patch_size,
-                    sw_batch_size=1,
-                    predictor=model,
-                    overlap=overlap,
-                    mode="gaussian"
-                )
+            out = sliding_window_inference(
+                inputs=img_tensor,
+                roi_size=patch_size,
+                sw_batch_size=1,
+                predictor=model,
+                overlap=overlap,
+                mode="gaussian"
+            )
+            if isinstance(out, (list, tuple)):
+                out = out[0]
+            return out
 
     if not use_tta:
         return _single_pass(image)

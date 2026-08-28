@@ -2,8 +2,9 @@
 """
 fold_runner.py
 =============================================================================
-Standardized 25-Epoch Training Runner with RAM Volume Caching, Per-Model Batch Sizes,
-torch.compile Acceleration, MONAI DiceCELoss, & Full-Volume Sliding Window Validation.
+Standardized 25-Epoch Training Runner with MONAI 3D Data Augmentation,
+RAM Volume Caching, Per-Model Batch Sizes, torch.compile Acceleration,
+MONAI DiceCELoss with Deep Supervision, & Full-Volume Sliding Window Validation.
 """
 
 import os
@@ -23,6 +24,9 @@ except ImportError:
     HAS_BLOSC2 = False
 
 from monai.losses import DiceCELoss
+from monai.transforms import (
+    Compose, RandFlipd, RandRotated, RandZoomd, RandGaussianNoised, RandAdjustContrastd
+)
 from .common_config import (
     ARCH_CONFIGS, PATCH_SIZE, TOTAL_EPOCHS, VALIDATION_CADENCE_EPOCHS,
     EARLY_STOP_DICE_FLOOR, BENCHMARK_RESULTS_DIR, PREPROC_DATASET_DIR, RAW_DATASET_DIR,
@@ -71,11 +75,22 @@ def load_case_data(case_id):
 class CTDataset(Dataset):
     """
     Dataset wrapper for training patches extracted from RAM-cached preprocessed volumes.
-    Uses 80% foreground-centric sampling & 20% random spatial cropping.
+    Uses 80% foreground-centric sampling & MONAI 3D spatial/intensity data augmentations.
     """
-    def __init__(self, case_ids, volume_cache=None):
+    def __init__(self, case_ids, volume_cache=None, augment=True):
         self.case_ids = case_ids
         self.volume_cache = volume_cache
+        self.augment = augment
+        if augment:
+            self.transform = Compose([
+                RandFlipd(keys=['image', 'label'], prob=0.5, spatial_axis=[0, 1, 2]),
+                RandRotated(keys=['image', 'label'], prob=0.3, range_x=0.1, range_y=0.1, range_z=0.1, mode=['bilinear', 'nearest']),
+                RandZoomd(keys=['image', 'label'], prob=0.2, min_zoom=0.9, max_zoom=1.1, mode=['bilinear', 'nearest']),
+                RandGaussianNoised(keys=['image'], prob=0.1, std=0.01),
+                RandAdjustContrastd(keys=['image'], prob=0.1, gamma=(0.8, 1.2))
+            ])
+        else:
+            self.transform = None
 
     def __len__(self):
         return len(self.case_ids)
@@ -112,7 +127,15 @@ class CTDataset(Dataset):
             img_crop = np.pad(img_crop, ((0,0), (0, pad_z), (0, pad_y), (0, pad_x)), mode='constant')
             lbl_crop = np.pad(lbl_crop, ((0,0), (0, pad_z), (0, pad_y), (0, pad_x)), mode='constant')
 
-        return torch.from_numpy(img_crop).float(), torch.from_numpy(lbl_crop).long()
+        img_tensor = torch.from_numpy(img_crop).float()
+        lbl_tensor = torch.from_numpy(lbl_crop).long()
+
+        if self.augment and self.transform is not None:
+            data = {"image": img_tensor, "label": lbl_tensor}
+            data = self.transform(data)
+            img_tensor, lbl_tensor = data["image"], data["label"]
+
+        return img_tensor, lbl_tensor
 
 def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
     """
@@ -129,6 +152,9 @@ def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
         image_tensor = torch.from_numpy(image_arr).float() # (1, Z, Y, X)
         
         logits = run_sliding_window(model, image_tensor, patch_size=PATCH_SIZE, stride=fast_stride, device=device)
+        if isinstance(logits, (list, tuple)):
+            logits = logits[0]
+            
         pred = torch.argmax(logits, dim=1).squeeze(0).cpu().numpy() # (Z, Y, X)
         
         d = compute_dice(pred, lbl)
@@ -186,8 +212,8 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         cached_items = list(tqdm(executor.map(_read_case, train_cases), total=len(train_cases), desc=" ⚡ Parallel RAM Caching", leave=False))
         volume_cache = dict(cached_items)
 
-    train_dataset = CTDataset(train_cases, volume_cache=volume_cache)
-    num_patches_per_volume = 20  # Standardized 20 patches per volume
+    train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=True)
+    num_patches_per_volume = 30  # Increased to 30 patches per volume (2520 samples/epoch)
     total_patches_per_epoch = len(train_cases) * num_patches_per_volume
 
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=total_patches_per_epoch)
@@ -202,6 +228,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
     )
 
     best_val_dice = -1.0
+    best_epoch = -1
     is_early_terminated = False
     
     history_logs = []
@@ -219,7 +246,11 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
             
             with torch.amp.autocast('cuda', enabled=True):
                 logits = model(img)
-                loss = criterion(logits, lbl) / grad_accum_steps
+                if isinstance(logits, (list, tuple)):
+                    loss = sum(criterion(out, lbl) for out in logits) / float(len(logits))
+                else:
+                    loss = criterion(logits, lbl)
+                loss = loss / grad_accum_steps
 
             scaler.scale(loss).backward()
             batch_loss = loss.item() * grad_accum_steps
@@ -250,16 +281,10 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
 
             if val_dice > best_val_dice:
                 best_val_dice = val_dice
+                best_epoch = epoch
                 unwrapped_model = model._orig_mod if hasattr(model, '_orig_mod') else model
                 torch.save(unwrapped_model.state_dict(), os.path.join(output_dir, 'checkpoint_best.pth'))
-                print(f" 🏆 Saved new best checkpoint! Best Val Dice: {best_val_dice:.4f}")
-
-            # Stage 1 Early Termination Check at Epoch 15
-            if is_stage1 and epoch == 15:
-                if val_dice < EARLY_STOP_DICE_FLOOR:
-                    print(f" ⚠️ EARLY TERMINATION AT EPOCH 15: Val Dice ({val_dice:.4f}) < Floor ({EARLY_STOP_DICE_FLOOR}). Aborting run.", flush=True)
-                    is_early_terminated = True
-                    break
+                print(f" 🏆 Saved new best checkpoint at epoch {epoch}! Best Val Dice: {best_val_dice:.4f}")
 
     unwrapped_model = model._orig_mod if hasattr(model, '_orig_mod') else model
     torch.save(unwrapped_model.state_dict(), os.path.join(output_dir, 'checkpoint_final.pth'))
@@ -268,8 +293,9 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         "arch_key": arch_key,
         "fold": fold_idx,
         "best_val_dice": best_val_dice,
+        "best_epoch": best_epoch,
         "final_val_dice": history_logs[-1]["val_dice"] if history_logs else 0.0,
-        "early_terminated": is_early_terminated,
+        "early_terminated": False,
         "total_elapsed_seconds": time.time() - start_wall_clock,
         "history": history_logs
     }

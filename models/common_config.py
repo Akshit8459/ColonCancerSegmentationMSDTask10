@@ -72,8 +72,8 @@ ARCH_CONFIGS = {
     "B_UMamba": {
         "name": "U-Mamba 3D",
         "optimizer": "AdamW",
-        "weight_decay": 1e-2,
-        "lr": 2e-4,
+        "weight_decay": 1e-4,
+        "lr": 1e-4,
         "lr_scheduler": "cosine",
         "warmup_epochs": 2,
         "is_2d": False
@@ -81,8 +81,8 @@ ARCH_CONFIGS = {
     "C_SwinUMamba": {
         "name": "Swin-UMamba 2D Slice-Wise",
         "optimizer": "AdamW",
-        "weight_decay": 1e-2,
-        "lr": 1e-4,
+        "weight_decay": 1e-4,
+        "lr": 5e-5,
         "lr_scheduler": "cosine",
         "warmup_epochs": 2,
         "is_2d": True
@@ -90,8 +90,8 @@ ARCH_CONFIGS = {
     "D_SegMamba": {
         "name": "SegMamba 3D",
         "optimizer": "AdamW",
-        "weight_decay": 1e-2,
-        "lr": 2e-4,
+        "weight_decay": 1e-4,
+        "lr": 1e-4,
         "lr_scheduler": "cosine",
         "warmup_epochs": 2,
         "is_2d": False
@@ -99,8 +99,8 @@ ARCH_CONFIGS = {
     "E_SwinUNETR": {
         "name": "Swin-UNETR 3D",
         "optimizer": "AdamW",
-        "weight_decay": 1e-2,
-        "lr": 2e-4,
+        "weight_decay": 1e-4,
+        "lr": 1e-4,
         "lr_scheduler": "cosine",
         "warmup_epochs": 2,
         "is_2d": False
@@ -108,8 +108,8 @@ ARCH_CONFIGS = {
     "F_nnUZoo": {
         "name": "nnUZoo / X2Net Hybrid",
         "optimizer": "AdamW",
-        "weight_decay": 1e-2,
-        "lr": 2e-4,
+        "weight_decay": 1e-4,
+        "lr": 1e-4,
         "lr_scheduler": "cosine",
         "warmup_epochs": 2,
         "is_2d": False
