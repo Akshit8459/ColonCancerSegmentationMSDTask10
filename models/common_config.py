@@ -44,6 +44,16 @@ EARLY_STOP_DICE_FLOOR = 0.45     # Epoch 15 early termination threshold in Stage
 TOTAL_EPOCHS = 25
 VALIDATION_CADENCE_EPOCHS = 5    # Validate at epochs 5, 10, 15, 20, 25
 
+# Safe maximum per-architecture batch sizes (measured on 32GB VRAM)
+MODEL_MAX_BATCH = {
+    "A_nnUNet": 8,
+    "B_UMamba": 4,
+    "C_SwinUMamba": 4,
+    "D_SegMamba": 8,
+    "E_SwinUNETR": 4,
+    "F_nnUZoo": 4,
+}
+
 # Fixed performance-stratified 5-case validation subset from Fold 0 validation split
 STAGE1_FIXED_VAL_CASES = ["colon_039", "colon_102", "colon_166", "colon_157", "colon_006"]
 

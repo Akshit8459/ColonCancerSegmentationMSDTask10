@@ -2,8 +2,8 @@
 """
 fold_runner.py
 =============================================================================
-Standardized 25-Epoch Training Runner with Full-Volume Sliding Window Validation,
-blosc2 preprocessed volume loading, & Early Termination Floor.
+Standardized 25-Epoch Training Runner with RAM Volume Caching, Per-Model Batch Sizes,
+torch.compile Acceleration, MONAI DiceCELoss, & Full-Volume Sliding Window Validation.
 """
 
 import os
@@ -25,7 +25,8 @@ except ImportError:
 from monai.losses import DiceCELoss
 from .common_config import (
     ARCH_CONFIGS, PATCH_SIZE, TOTAL_EPOCHS, VALIDATION_CADENCE_EPOCHS,
-    EARLY_STOP_DICE_FLOOR, BENCHMARK_RESULTS_DIR, PREPROC_DATASET_DIR, RAW_DATASET_DIR
+    EARLY_STOP_DICE_FLOOR, BENCHMARK_RESULTS_DIR, PREPROC_DATASET_DIR, RAW_DATASET_DIR,
+    MODEL_MAX_BATCH
 )
 from .model_factory import get_model
 from .evaluation import compute_dice, run_sliding_window
@@ -69,18 +70,22 @@ def load_case_data(case_id):
 
 class CTDataset(Dataset):
     """
-    Dataset wrapper for training patches extracted from preprocessed volumes.
-    Uses 50% foreground-centric sampling & 50% random spatial cropping.
+    Dataset wrapper for training patches extracted from RAM-cached preprocessed volumes.
+    Uses 80% foreground-centric sampling & 20% random spatial cropping.
     """
-    def __init__(self, case_ids):
+    def __init__(self, case_ids, volume_cache=None):
         self.case_ids = case_ids
+        self.volume_cache = volume_cache
 
     def __len__(self):
         return len(self.case_ids)
 
     def __getitem__(self, idx):
         case_id = self.case_ids[idx]
-        image, label = load_case_data(case_id)
+        if self.volume_cache is not None and case_id in self.volume_cache:
+            image, label = self.volume_cache[case_id]
+        else:
+            image, label = load_case_data(case_id)
 
         z, y, x = image.shape[1:]
         pz, py, px = PATCH_SIZE
@@ -138,11 +143,23 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     arch_cfg = ARCH_CONFIGS[arch_key]
     
+    batch_size = MODEL_MAX_BATCH.get(arch_key, 1)
+    grad_accum_steps = max(1, 2 // batch_size)
+
     print(f"\n----------------------------------------------------------------------")
     print(f" 🏋️ RUNNING FOLD {fold_idx} | Model: {arch_key} | Cases: Train={len(train_cases)}, Val={len(val_cases)}")
+    print(f" ⚡ Speed Settings: Batch Size={batch_size}, Grad Accum Steps={grad_accum_steps}")
     print(f"----------------------------------------------------------------------", flush=True)
 
     model = get_model(arch_key).to(device)
+
+    # Enable PyTorch compilation for supported models
+    if hasattr(torch, 'compile'):
+        try:
+            model = torch.compile(model, mode="reduce-overhead")
+            print(" 🚀 Accelerated model with torch.compile!")
+        except Exception as e:
+            print(f" ⚠️ Could not compile model: {e}")
     
     if arch_cfg["optimizer"] == "SGD":
         optimizer = torch.optim.SGD(model.parameters(), lr=arch_cfg["lr"], momentum=arch_cfg["momentum"], weight_decay=arch_cfg["weight_decay"])
@@ -157,19 +174,28 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         weight=torch.tensor([1.0, 2.0], device=device)
     )
 
-    train_dataset = CTDataset(train_cases)
-    num_patches_per_volume = 15  # Standardized 15 patches per volume (1260 steps/epoch for 84 train cases)
+    # Pre-cache all training volumes in RAM
+    print(" 📦 Caching training volumes into RAM for 0-latency I/O...", flush=True)
+    volume_cache = {}
+    for case_id in tqdm(train_cases, desc=" ⚡ RAM Caching", leave=False):
+        img, lbl = load_case_data(case_id)
+        volume_cache[case_id] = (img, lbl)
+
+    train_dataset = CTDataset(train_cases, volume_cache=volume_cache)
+    num_patches_per_volume = 20  # Standardized 15 patches per volume
     steps_per_epoch = len(train_cases) * num_patches_per_volume
 
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=steps_per_epoch)
     train_loader = DataLoader(
         train_dataset,
-        batch_size=1,
+        batch_size=batch_size,
         sampler=sampler,
+        num_workers=4,
+        pin_memory=True,
+        persistent_workers=True,
         drop_last=True
     )
 
-    grad_accum_steps = 2
     best_val_dice = -1.0
     is_early_terminated = False
     
@@ -219,7 +245,8 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
 
             if val_dice > best_val_dice:
                 best_val_dice = val_dice
-                torch.save(model.state_dict(), os.path.join(output_dir, 'checkpoint_best.pth'))
+                unwrapped_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+                torch.save(unwrapped_model.state_dict(), os.path.join(output_dir, 'checkpoint_best.pth'))
                 print(f" 🏆 Saved new best checkpoint! Best Val Dice: {best_val_dice:.4f}")
 
             # Stage 1 Early Termination Check at Epoch 15
@@ -229,7 +256,8 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
                     is_early_terminated = True
                     break
 
-    torch.save(model.state_dict(), os.path.join(output_dir, 'checkpoint_final.pth'))
+    unwrapped_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+    torch.save(unwrapped_model.state_dict(), os.path.join(output_dir, 'checkpoint_final.pth'))
     
     summary = {
         "arch_key": arch_key,
