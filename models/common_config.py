@@ -11,8 +11,9 @@ Target GPU: GPU 5 (via CUDA_VISIBLE_DEVICES=5).
 import os
 import json
 
-# Force target GPU 5
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+# Allow command-line CUDA_VISIBLE_DEVICES override (default to GPU 5 if unspecified)
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 
 # Base paths for nnU-Net dataset structures
 NNUNET_RAW = os.environ.get('nnUNet_raw', '/home/akshitp/preprocessing/nnUNet_raw')
