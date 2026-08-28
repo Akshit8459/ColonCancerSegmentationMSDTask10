@@ -2,18 +2,18 @@
 """
 run_stage1_screening.py
 =============================================================================
-Stage 1 Iso-Time Screening Launcher (Fold 0 across all 6 architectures).
+Stage 1 Iso-Time Screening Launcher (Fold 0 across selected architectures).
+- Supports parallel multi-GPU execution via --archs arguments.
 - Runs 25 epochs per model on Fold 0 with 5-epoch validation cadence.
 - Validates on the fixed 5-case performance-stratified subset (STAGE1_FIXED_VAL_CASES).
 - Applies Epoch-15 Early Termination Floor (Dice < 0.45).
-- Ranks all 6 architectures, applies 1 SD promotion threshold, and selects
-  Exp A (Anchor) + Stage 1 Winner for Stage 2 confirmation.
-- Output: /home/akshitp/Benchmarking/results/stage1_screening_rankings.json
+- Ranks all architectures and outputs stage1_screening_rankings.json.
 """
 
 import os
 import sys
 import json
+import argparse
 import numpy as np
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,9 +27,14 @@ from models.common_config import (
 from models.fold_runner import run_fold_training
 
 def main():
+    parser = argparse.ArgumentParser(description="Stage 1 Iso-Time Screening Launcher")
+    parser.add_argument('--archs', nargs='+', default=list(ARCH_CONFIGS.keys()), help="Architectures to screen (e.g. A_nnUNet B_UMamba)")
+    args = parser.parse_args()
+
     print("======================================================================")
-    print(" 🚀 STAGE 1: ISO-TIME SCREENING (FOLD 0, ALL 6 ARCHITECTURES)")
-    print(" Target: Screen all 6 models, apply Epoch-15 Early Termination Floor (<0.45)")
+    print(" 🚀 STAGE 1: SCREENING (FOLD 0)")
+    print(f" Target Architectures: {args.archs}")
+    print(" Target: Screen models, apply Epoch-15 Early Termination Floor (<0.45)")
     print(" Fixed Validation Subset: 5 stratified cases in Fold 0")
     print("======================================================================\n", flush=True)
 
@@ -39,7 +44,11 @@ def main():
 
     results = {}
 
-    for arch_key in ARCH_CONFIGS.keys():
+    for arch_key in args.archs:
+        if arch_key not in ARCH_CONFIGS:
+            print(f" ⚠️ Skipping unknown architecture: {arch_key}")
+            continue
+
         print(f"\n======================================================================")
         print(f" ▶️ STAGE 1 SCREENING: {arch_key} ({ARCH_CONFIGS[arch_key]['name']})")
         print(f"======================================================================", flush=True)
@@ -55,15 +64,27 @@ def main():
         )
         results[arch_key] = summary
 
+    # Consolidate all available Stage 1 results across models
+    stage1_dir = os.path.join(BENCHMARK_RESULTS_DIR, 'stage1_screening')
+    all_results = {}
+    for arch in sorted(os.listdir(stage1_dir)):
+        summary_path = os.path.join(stage1_dir, arch, 'fold_summary.json')
+        if os.path.exists(summary_path):
+            all_results[arch] = json.load(open(summary_path))
+
+    if not all_results:
+        print(" ⚠️ No completed Stage 1 runs found to rank.")
+        return
+
     # Ranking and Promotion Selection
     print("\n======================================================================")
     print(" 📊 STAGE 1 SCREENING RANKING & SELECTION SUMMARY")
     print("======================================================================")
     
-    ranked_models = sorted(results.items(), key=lambda x: x[1]["best_val_dice"], reverse=True)
+    ranked_models = sorted(all_results.items(), key=lambda x: x[1]["best_val_dice"], reverse=True)
     
     for rank, (key, res) in enumerate(ranked_models, start=1):
-        status = "EARLY TERMINATED" if res["early_terminated"] else "COMPLETED"
+        status = "EARLY TERMINATED" if res.get("early_terminated", False) else "COMPLETED"
         print(f" #{rank}: {key:15s} | Best Val Dice: {res['best_val_dice']:.4f} | Status: {status} | Time: {res['total_elapsed_seconds']:.1f}s")
 
     # Select Winner + Mandatory Exp A Anchor
@@ -72,12 +93,11 @@ def main():
     if top_winner_key != "A_nnUNet":
         promoted_finalists.append(top_winner_key)
     else:
-        # If A_nnUNet is top 1, pick top 2 as challenger
         if len(ranked_models) > 1:
             promoted_finalists.append(ranked_models[1][0])
 
     print("\n======================================================================")
-    print(f" 🏆 STAGE 1 WINNER   : {top_winner_key} (Dice: {results[top_winner_key]['best_val_dice']:.4f})")
+    print(f" 🏆 STAGE 1 WINNER   : {top_winner_key} (Dice: {all_results[top_winner_key]['best_val_dice']:.4f})")
     print(f" 🎟️ PROMOTED TO STAGE 2: {promoted_finalists}")
     print("======================================================================\n", flush=True)
 
@@ -87,7 +107,7 @@ def main():
                 "rank": i + 1,
                 "arch_key": k,
                 "best_val_dice": v["best_val_dice"],
-                "early_terminated": v["early_terminated"],
+                "early_terminated": v.get("early_terminated", False),
                 "total_elapsed_seconds": v["total_elapsed_seconds"]
             }
             for i, (k, v) in enumerate(ranked_models)
@@ -97,7 +117,7 @@ def main():
     }
 
     from models.plotting import plot_stage1_curves
-    plot_stage1_curves(os.path.join(BENCHMARK_RESULTS_DIR, 'stage1_screening'), BENCHMARK_RESULTS_DIR)
+    plot_stage1_curves(stage1_dir, BENCHMARK_RESULTS_DIR)
 
     report_path = os.path.join(BENCHMARK_RESULTS_DIR, 'stage1_screening_rankings.json')
     with open(report_path, 'w') as f:
