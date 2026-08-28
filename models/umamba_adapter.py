@@ -42,13 +42,13 @@ class UMamba3D(nn.Module):
         
         curr_in = in_channels
         for feat in features:
-            self.encoders.append(ResidualUnit(3, curr_in, feat, strides=1, num_res_units=2, norm="instance"))
+            self.encoders.append(ResidualUnit(3, curr_in, feat, strides=1, subunits=2, norm="instance"))
             self.mamba_blocks.append(MambaBlock3D(feat))
             self.downs.append(nn.Conv3d(feat, feat, kernel_size=2, stride=2))
             curr_in = feat
 
         self.bottleneck = nn.Sequential(
-            ResidualUnit(3, features[-1], features[-1] * 2, strides=1, num_res_units=2, norm="instance"),
+            ResidualUnit(3, features[-1], features[-1] * 2, strides=1, subunits=2, norm="instance"),
             MambaBlock3D(features[-1] * 2)
         )
 
@@ -58,7 +58,7 @@ class UMamba3D(nn.Module):
         curr_in = features[-1] * 2
         for feat in rev_features:
             self.ups.append(UpSample(3, curr_in, feat, scale_factor=2, mode="nontrainable"))
-            self.decoders.append(ResidualUnit(3, feat * 2, feat, strides=1, num_res_units=2, norm="instance"))
+            self.decoders.append(ResidualUnit(3, feat * 2, feat, strides=1, subunits=2, norm="instance"))
             curr_in = feat
 
         self.final_conv = nn.Conv3d(features[0], out_channels, kernel_size=1)

@@ -39,7 +39,7 @@ class X2Net3D(nn.Module):
         self.downs = nn.ModuleList([nn.Conv3d(f, f*2, kernel_size=2, stride=2) for f in features[:-1]])
         
         self.ups = nn.ModuleList([UpSample(3, features[i+1]*2 if i < len(features)-2 else features[-1], features[i], scale_factor=2, mode="nontrainable") for i in range(len(features)-1)])
-        self.decoders = nn.ModuleList([ResidualUnit(3, features[i]*2, features[i], strides=1, num_res_units=1, norm="instance") for i in range(len(features)-1)])
+        self.decoders = nn.ModuleList([ResidualUnit(3, features[i]*2, features[i], strides=1, subunits=1, norm="instance") for i in range(len(features)-1)])
         
         self.out_conv = nn.Conv3d(features[0], out_channels, kernel_size=1)
 
