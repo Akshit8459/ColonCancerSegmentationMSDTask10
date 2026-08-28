@@ -3,16 +3,13 @@
 swin_unetr_adapter.py
 =============================================================================
 Experiment E Adapter: MONAI Swin-UNETR 3D Transformer with SSL Pretrained Weights.
-Loads MONAI 3D Swin-UNETR architecture pre-trained on 3D CT volumes.
 """
 
 import torch
-import torch.nn as nn
 from monai.networks.nets import SwinUNETR
 
-def build_swin_unetr_model(in_channels=1, out_channels=2, img_size=(64, 128, 128)):
+def build_swin_unetr_model(in_channels=1, out_channels=2):
     model = SwinUNETR(
-        img_size=img_size,
         in_channels=in_channels,
         out_channels=out_channels,
         feature_size=48,
@@ -20,6 +17,7 @@ def build_swin_unetr_model(in_channels=1, out_channels=2, img_size=(64, 128, 128
         spatial_dims=3
     )
     
+    # Load MONAI SSL pretrained weights
     url = "https://github.com/Project-MONAI/MONAI-extra-test-data/releases/download/0.8.1/model_swinvit.pt"
     try:
         state_dict = torch.hub.load_state_dict_from_url(url, map_location='cpu', progress=False)
