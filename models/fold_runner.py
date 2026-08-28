@@ -227,6 +227,8 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         drop_last=True
     )
 
+    patience = 2                # Stop if no improvement for 2 consecutive validation checks (10 epochs)
+    patience_counter = 0
     best_val_dice = -1.0
     best_epoch = -1
     is_early_terminated = False
@@ -282,9 +284,17 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
             if val_dice > best_val_dice:
                 best_val_dice = val_dice
                 best_epoch = epoch
+                patience_counter = 0
                 unwrapped_model = model._orig_mod if hasattr(model, '_orig_mod') else model
                 torch.save(unwrapped_model.state_dict(), os.path.join(output_dir, 'checkpoint_best.pth'))
                 print(f" 🏆 Saved new best checkpoint at epoch {epoch}! Best Val Dice: {best_val_dice:.4f}")
+            else:
+                patience_counter += 1
+                print(f" ⏳ No improvement for {patience_counter}/{patience} validation checks (Best: {best_val_dice:.4f} at epoch {best_epoch}).")
+                if is_stage1 and patience_counter >= patience:
+                    print(f" ⏹️ Early stopping at epoch {epoch} – no validation improvement for {patience} consecutive checks.")
+                    is_early_terminated = True
+                    break
 
     unwrapped_model = model._orig_mod if hasattr(model, '_orig_mod') else model
     torch.save(unwrapped_model.state_dict(), os.path.join(output_dir, 'checkpoint_final.pth'))
@@ -295,7 +305,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         "best_val_dice": best_val_dice,
         "best_epoch": best_epoch,
         "final_val_dice": history_logs[-1]["val_dice"] if history_logs else 0.0,
-        "early_terminated": False,
+        "early_terminated": is_early_terminated,
         "total_elapsed_seconds": time.time() - start_wall_clock,
         "history": history_logs
     }
