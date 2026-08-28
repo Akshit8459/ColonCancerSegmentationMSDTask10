@@ -2,14 +2,8 @@
 """
 fold_runner.py
 =============================================================================
-Standardized 25-Epoch Training Runner with Fast Validation & Early Termination.
-Supports:
-- Mixed precision AMP training with gradient accumulation (Tier 2 fallback).
-- Full 3D sliding window validation every 5 epochs (epochs 5, 10, 15, 20, 25).
-- Fast validation stride (0.75) for training speedup.
-- Stage 1 Epoch-15 Early Termination Floor (Dice < 0.45).
-- "Best-Epoch" checkpointing (checkpoint_best.pth) tracking peak validation Dice.
-- Dual-curve logging: Dice vs. Wall-Clock Time & Dice vs. Iteration Count.
+Standardized 25-Epoch Training Runner with Full-Volume Sliding Window Validation
+& Early Termination Floor.
 """
 
 import os
@@ -18,21 +12,20 @@ import json
 import torch
 import torch.nn as nn
 import numpy as np
-import SimpleITK as sitk
 from torch.utils.data import Dataset, DataLoader
 
 from models.common_config import (
     ARCH_CONFIGS, PATCH_SIZE, TOTAL_EPOCHS, VALIDATION_CADENCE_EPOCHS,
-    EARLY_STOP_DICE_FLOOR, BENCHMARK_RESULTS_DIR, PREPROC_DATASET_DIR, RAW_DATASET_DIR
+    EARLY_STOP_DICE_FLOOR, BENCHMARK_RESULTS_DIR, PREPROC_DATASET_DIR
 )
 from models.model_factory import get_model
-from models.evaluation import compute_dice
+from models.evaluation import compute_dice, run_sliding_window
 
 class CTDataset(Dataset):
     """
-    Dataset wrapper for preprocessed npz files.
+    Dataset wrapper for training patches extracted from preprocessed npz files.
     """
-    def __init__(self, case_ids, is_stage1_subset=False):
+    def __init__(self, case_ids):
         self.case_ids = case_ids
 
     def __len__(self):
@@ -47,22 +40,20 @@ class CTDataset(Dataset):
             image = data[0:1]  # (1, Z, Y, X)
             label = data[1:2]  # (1, Z, Y, X)
         else:
-            # Fallback random patch for testing environment
             image = np.random.randn(1, *PATCH_SIZE).astype(np.float32)
             label = (np.random.rand(1, *PATCH_SIZE) > 0.9).astype(np.float32)
 
-        # Crop / Pad to target patch size
+        # Crop to target patch size
         z, y, x = image.shape[1:]
         pz, py, px = PATCH_SIZE
         
-        sz = max(0, (z - pz) // 2)
-        sy = max(0, (y - py) // 2)
-        sx = max(0, (x - px) // 2)
+        sz = max(0, (z - pz) // 2) if z > pz else 0
+        sy = max(0, (y - py) // 2) if y > py else 0
+        sx = max(0, (x - px) // 2) if x > px else 0
         
         img_crop = image[:, sz:sz+pz, sy:sy+py, sx:sx+px]
         lbl_crop = label[:, sz:sz+pz, sy:sy+py, sx:sx+px]
         
-        # Pad if smaller than patch size
         if img_crop.shape[1:] != PATCH_SIZE:
             pad_z = max(0, pz - img_crop.shape[1])
             pad_y = max(0, py - img_crop.shape[2])
@@ -74,26 +65,29 @@ class CTDataset(Dataset):
 
 def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
     """
-    Evaluates model on validation cases using 3D sliding window / 2D slice stacking.
+    Evaluates model on validation cases using full-volume 3D sliding-window inference.
     """
     model.eval()
     dices = []
     
-    val_dataset = CTDataset(val_cases)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
-    
-    with torch.no_grad():
-        for img, lbl in val_loader:
-            img = img.to(device)
-            lbl = lbl.numpy()[0, 0]
-            
-            with torch.cuda.amp.autocast(enabled=True):
-                logits = model(img)
-                pred = torch.argmax(logits, dim=1).cpu().numpy()[0]
-                
-            d = compute_dice(pred, lbl)
-            dices.append(d)
-            
+    for case_id in val_cases:
+        npz_path = os.path.join(PREPROC_DATASET_DIR, 'nnUNetPlans_3d_fullres', f"{case_id}.npz")
+        if os.path.exists(npz_path):
+            data = np.load(npz_path)['data']
+            image_arr = data[0:1] # (1, Z, Y, X)
+            label_arr = data[1]   # (Z, Y, X)
+        else:
+            image_arr = np.random.randn(1, *PATCH_SIZE).astype(np.float32)
+            label_arr = (np.random.rand(*PATCH_SIZE) > 0.9).astype(np.uint8)
+
+        image_tensor = torch.from_numpy(image_arr).float() # (1, Z, Y, X)
+        
+        logits = run_sliding_window(model, image_tensor, patch_size=PATCH_SIZE, stride=fast_stride, device=device)
+        pred = torch.argmax(logits, dim=1).squeeze(0).cpu().numpy() # (Z, Y, X)
+        
+        d = compute_dice(pred, label_arr)
+        dices.append(d)
+        
     model.train()
     return float(np.mean(dices)) if len(dices) > 0 else 0.0
 
@@ -108,7 +102,6 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
 
     model = get_model(arch_key).to(device)
     
-    # Architecture-tailored optimizer & LR scheduler
     if arch_cfg["optimizer"] == "SGD":
         optimizer = torch.optim.SGD(model.parameters(), lr=arch_cfg["lr"], momentum=arch_cfg["momentum"], weight_decay=arch_cfg["weight_decay"])
     else:
@@ -164,7 +157,6 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
             }
             history_logs.append(log_entry)
 
-            # Checkpoint best model weights
             if val_dice > best_val_dice:
                 best_val_dice = val_dice
                 torch.save(model.state_dict(), os.path.join(output_dir, 'checkpoint_best.pth'))
@@ -177,7 +169,6 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
                     is_early_terminated = True
                     break
 
-    # Save final checkpoint at epoch 25
     torch.save(model.state_dict(), os.path.join(output_dir, 'checkpoint_final.pth'))
     
     summary = {

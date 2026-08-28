@@ -4,6 +4,7 @@ evaluation.py
 =============================================================================
 Evaluation engine for MSD Task10 Colon Benchmarking Suite.
 Computes:
+- Full-volume 3D sliding window inference via MONAI's sliding_window_inference.
 - Foreground Dice, HD95, Precision, Recall/Sensitivity.
 - Lesion-wise / Connected-Component Recall.
 - Subgroup stratification (Small <2cm, Medium 2-5cm, Large >5cm; Single vs Multi-lesion).
@@ -16,8 +17,33 @@ import json
 import numpy as np
 import torch
 import SimpleITK as sitk
-from scipy.ndimage import label, center_of_mass
+from scipy.ndimage import label
 from scipy.stats import wilcoxon
+from monai.inferers import sliding_window_inference
+
+def run_sliding_window(model, image, patch_size=(64, 128, 128), stride=0.75, device="cuda:0"):
+    """
+    Runs full-volume 3D sliding-window inference.
+    image: torch tensor (1, C, Z, Y, X) or (C, Z, Y, X)
+    returns: logits (1, C_out, Z, Y, X)
+    """
+    model.eval()
+    if image.dim() == 4:
+        image = image.unsqueeze(0) # (1, C, Z, Y, X)
+        
+    overlap = max(0.01, 1.0 - stride)
+    
+    with torch.no_grad():
+        with torch.cuda.amp.autocast(enabled=True):
+            logits = sliding_window_inference(
+                inputs=image.to(device),
+                roi_size=patch_size,
+                sw_batch_size=1,
+                predictor=model,
+                overlap=overlap,
+                mode="gaussian"
+            )
+    return logits
 
 def compute_dice(pred, gt):
     pred = (pred > 0).astype(np.uint8)
@@ -59,10 +85,7 @@ def compute_connected_component_recall(pred, gt, min_voxels=5):
             
     return float(recalled / num_gt)
 
-def evaluate_case(pred, gt, spacing=(1.0, 1.0, 2.0)):
-    """
-    Full metric evaluation for a single 3D prediction against GT label array.
-    """
+def evaluate_case(pred, gt):
     d = compute_dice(pred, gt)
     p, r = compute_precision_recall(pred, gt)
     cc_r = compute_connected_component_recall(pred, gt)
