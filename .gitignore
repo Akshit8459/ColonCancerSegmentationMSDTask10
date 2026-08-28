@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+results/stage1_screening/
+results/stage2_confirmation/
