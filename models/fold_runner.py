@@ -40,6 +40,10 @@ def load_case_data(case_id):
     if HAS_BLOSC2 and os.path.exists(img_b2nd) and os.path.exists(seg_b2nd):
         img_arr = blosc2.open(img_b2nd)[:]
         lbl_arr = blosc2.open(seg_b2nd)[:]
+        if img_arr.ndim == 3:
+            img_arr = img_arr[np.newaxis, ...]
+        if lbl_arr.ndim == 3:
+            lbl_arr = lbl_arr[np.newaxis, ...]
         return img_arr.astype(np.float32), lbl_arr.astype(np.float32)
         
     npz_path = os.path.join(prep_dir, f"{case_id}.npz")
