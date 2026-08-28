@@ -94,6 +94,9 @@ def main():
         "promoted_finalists": promoted_finalists
     }
 
+    from models.plotting import plot_stage1_curves
+    plot_stage1_curves(os.path.join(BENCHMARK_RESULTS_DIR, 'stage1_screening'), BENCHMARK_RESULTS_DIR)
+
     report_path = os.path.join(BENCHMARK_RESULTS_DIR, 'stage1_screening_rankings.json')
     with open(report_path, 'w') as f:
         json.dump(ranking_output, f, indent=4)

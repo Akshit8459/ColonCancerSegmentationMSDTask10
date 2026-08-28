@@ -167,6 +167,9 @@ def main():
     with open(summary_file, 'w') as f:
         json.dump(results_summary, f, indent=4)
         
+    from models.plotting import plot_final_comparison
+    plot_final_comparison(results_summary, BENCHMARK_RESULTS_DIR)
+        
     print("\n======================================================================")
     print(f" 🎉 FINAL BENCHMARKING SUITE COMPLETED CLEANLY! Summary: {summary_file}")
     print("======================================================================\n", flush=True)
