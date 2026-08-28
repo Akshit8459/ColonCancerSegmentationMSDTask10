@@ -2,8 +2,8 @@
 """
 fold_runner.py
 =============================================================================
-Standardized 25-Epoch Training Runner with Full-Volume Sliding Window Validation
-& Early Termination Floor.
+Standardized 25-Epoch Training Runner with Full-Volume Sliding Window Validation,
+blosc2 preprocessed volume loading, & Early Termination Floor.
 """
 
 import os
@@ -12,18 +12,58 @@ import json
 import torch
 import torch.nn as nn
 import numpy as np
+import SimpleITK as sitk
 from torch.utils.data import Dataset, DataLoader
+
+try:
+    import blosc2
+    HAS_BLOSC2 = True
+except ImportError:
+    HAS_BLOSC2 = False
 
 from models.common_config import (
     ARCH_CONFIGS, PATCH_SIZE, TOTAL_EPOCHS, VALIDATION_CADENCE_EPOCHS,
-    EARLY_STOP_DICE_FLOOR, BENCHMARK_RESULTS_DIR, PREPROC_DATASET_DIR
+    EARLY_STOP_DICE_FLOOR, BENCHMARK_RESULTS_DIR, PREPROC_DATASET_DIR, RAW_DATASET_DIR
 )
 from models.model_factory import get_model
 from models.evaluation import compute_dice, run_sliding_window
 
+def load_case_data(case_id):
+    """
+    Robust reader for preprocessed 3D CT volumes supporting .b2nd, .npz, and .nii.gz formats.
+    Returns: img_arr (1, Z, Y, X), lbl_arr (1, Z, Y, X) as float32.
+    """
+    prep_dir = os.path.join(PREPROC_DATASET_DIR, 'nnUNetPlans_3d_fullres')
+    img_b2nd = os.path.join(prep_dir, f"{case_id}.b2nd")
+    seg_b2nd = os.path.join(prep_dir, f"{case_id}_seg.b2nd")
+    
+    if HAS_BLOSC2 and os.path.exists(img_b2nd) and os.path.exists(seg_b2nd):
+        img_arr = blosc2.open(img_b2nd)[:]
+        lbl_arr = blosc2.open(seg_b2nd)[:]
+        return img_arr.astype(np.float32), lbl_arr.astype(np.float32)
+        
+    npz_path = os.path.join(prep_dir, f"{case_id}.npz")
+    if os.path.exists(npz_path):
+        data = np.load(npz_path)['data']
+        return data[0:1].astype(np.float32), data[1:2].astype(np.float32)
+
+    raw_img = os.path.join(RAW_DATASET_DIR, 'imagesTr', f"{case_id}_0000.nii.gz")
+    raw_lbl = os.path.join(RAW_DATASET_DIR, 'labelsTr', f"{case_id}.nii.gz")
+    if os.path.exists(raw_img) and os.path.exists(raw_lbl):
+        img_sitk = sitk.ReadImage(raw_img)
+        lbl_sitk = sitk.ReadImage(raw_lbl)
+        img_arr = sitk.GetArrayFromImage(img_sitk)[np.newaxis, ...]
+        lbl_arr = sitk.GetArrayFromImage(lbl_sitk)[np.newaxis, ...]
+        return img_arr.astype(np.float32), lbl_arr.astype(np.float32)
+
+    # Synthetic fallback for debug environment
+    img_arr = np.random.randn(1, 64, 128, 128).astype(np.float32)
+    lbl_arr = (np.random.rand(1, 64, 128, 128) > 0.9).astype(np.float32)
+    return img_arr, lbl_arr
+
 class CTDataset(Dataset):
     """
-    Dataset wrapper for training patches extracted from preprocessed npz files.
+    Dataset wrapper for training patches extracted from preprocessed volumes.
     """
     def __init__(self, case_ids):
         self.case_ids = case_ids
@@ -33,17 +73,9 @@ class CTDataset(Dataset):
 
     def __getitem__(self, idx):
         case_id = self.case_ids[idx]
-        npz_path = os.path.join(PREPROC_DATASET_DIR, 'nnUNetPlans_3d_fullres', f"{case_id}.npz")
-        
-        if os.path.exists(npz_path):
-            data = np.load(npz_path)['data']
-            image = data[0:1]  # (1, Z, Y, X)
-            label = data[1:2]  # (1, Z, Y, X)
-        else:
-            image = np.random.randn(1, *PATCH_SIZE).astype(np.float32)
-            label = (np.random.rand(1, *PATCH_SIZE) > 0.9).astype(np.float32)
+        image, label = load_case_data(case_id)
 
-        # Crop to target patch size
+        # Crop / pad to fixed target patch size
         z, y, x = image.shape[1:]
         pz, py, px = PATCH_SIZE
         
@@ -71,21 +103,15 @@ def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
     dices = []
     
     for case_id in val_cases:
-        npz_path = os.path.join(PREPROC_DATASET_DIR, 'nnUNetPlans_3d_fullres', f"{case_id}.npz")
-        if os.path.exists(npz_path):
-            data = np.load(npz_path)['data']
-            image_arr = data[0:1] # (1, Z, Y, X)
-            label_arr = data[1]   # (Z, Y, X)
-        else:
-            image_arr = np.random.randn(1, *PATCH_SIZE).astype(np.float32)
-            label_arr = (np.random.rand(*PATCH_SIZE) > 0.9).astype(np.uint8)
+        image_arr, label_arr = load_case_data(case_id)
+        lbl = label_arr[0] # (Z, Y, X)
 
         image_tensor = torch.from_numpy(image_arr).float() # (1, Z, Y, X)
         
         logits = run_sliding_window(model, image_tensor, patch_size=PATCH_SIZE, stride=fast_stride, device=device)
         pred = torch.argmax(logits, dim=1).squeeze(0).cpu().numpy() # (Z, Y, X)
         
-        d = compute_dice(pred, label_arr)
+        d = compute_dice(pred, lbl)
         dices.append(d)
         
     model.train()

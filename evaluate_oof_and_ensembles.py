@@ -27,13 +27,11 @@ from models.evaluation import (
     apply_holm_bonferroni
 )
 from models.probability_export import export_model_probabilities
+from models.fold_runner import load_case_data
 
-def load_gt_label(case_id):
-    npz_path = os.path.join(PREPROC_DATASET_DIR, 'nnUNetPlans_3d_fullres', f"{case_id}.npz")
-    if os.path.exists(npz_path):
-        return np.load(npz_path)['data'][1] # (Z, Y, X)
-    else:
-        return (np.random.rand(64, 128, 128) > 0.9).astype(np.uint8)
+def get_gt_label(case_id):
+    _, lbl = load_case_data(case_id)
+    return lbl[0].astype(np.uint8)
 
 def main():
     print("======================================================================")
@@ -71,7 +69,7 @@ def main():
             
             for case_id in val_cases:
                 prob_file = os.path.join(prob_dir, f"{case_id}.npz")
-                gt = load_gt_label(case_id)
+                gt = get_gt_label(case_id)
                 
                 if os.path.exists(prob_file):
                     prob = np.load(prob_file)['probabilities'][1]
@@ -103,8 +101,7 @@ def main():
         print(f"\n 🛡️ EVALUATING ON 20-CASE HELD-OUT PUBLIC TEST SET...")
         test_dices = []
         for case_id in test_cases:
-            gt = load_gt_label(case_id)
-            # Evaluate using Fold 0 best checkpoint
+            gt = get_gt_label(case_id)
             ckpt_path = os.path.join(arch_dir, 'fold_0', 'checkpoint_best.pth')
             test_prob_dir = os.path.join(arch_dir, 'held_out_test_probabilities')
             export_model_probabilities(arch_key, ckpt_path, [case_id], test_prob_dir)

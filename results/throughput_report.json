@@ -1,0 +1,62 @@
+{
+    "A_nnUNet": {
+        "arch_key": "A_nnUNet",
+        "name": "nnU-Net 3D Baseline",
+        "resolved_tier": 2,
+        "micro_batch_size": 1,
+        "grad_accum_steps": 2,
+        "sec_per_iter": 0.15708966851234435,
+        "peak_vram_gb": 0.3585171699523926,
+        "fits_batch2": false
+    },
+    "B_UMamba": {
+        "arch_key": "B_UMamba",
+        "name": "U-Mamba 3D",
+        "resolved_tier": 2,
+        "micro_batch_size": 1,
+        "grad_accum_steps": 2,
+        "sec_per_iter": 0.9644967019557953,
+        "peak_vram_gb": 2.3235788345336914,
+        "fits_batch2": false
+    },
+    "C_SwinUMamba": {
+        "arch_key": "C_SwinUMamba",
+        "name": "Swin-UMamba 2D Slice-Wise",
+        "resolved_tier": 2,
+        "micro_batch_size": 1,
+        "grad_accum_steps": 2,
+        "sec_per_iter": 1.315476268529892,
+        "peak_vram_gb": 5.029723644256592,
+        "fits_batch2": false
+    },
+    "D_SegMamba": {
+        "arch_key": "D_SegMamba",
+        "name": "SegMamba 3D",
+        "resolved_tier": 2,
+        "micro_batch_size": 1,
+        "grad_accum_steps": 2,
+        "sec_per_iter": 0.533169549703598,
+        "peak_vram_gb": 1.5211434364318848,
+        "fits_batch2": false
+    },
+    "E_SwinUNETR": {
+        "arch_key": "E_SwinUNETR",
+        "name": "Swin-UNETR 3D",
+        "resolved_tier": 2,
+        "micro_batch_size": 1,
+        "grad_accum_steps": 2,
+        "sec_per_iter": 2.128672879934311,
+        "peak_vram_gb": 4.057046890258789,
+        "fits_batch2": false
+    },
+    "F_nnUZoo": {
+        "arch_key": "F_nnUZoo",
+        "name": "nnUZoo / X2Net Hybrid",
+        "resolved_tier": 2,
+        "micro_batch_size": 1,
+        "grad_accum_steps": 2,
+        "sec_per_iter": 1.5191057622432709,
+        "peak_vram_gb": 1.777923583984375,
+        "fits_batch2": false
+    }
+}
