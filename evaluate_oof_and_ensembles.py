@@ -2,8 +2,8 @@
 """
 evaluate_oof_and_ensembles.py
 =============================================================================
-Out-of-Fold (OOF) Evaluation, Soft-Probability Ensembling, Holm-Bonferroni Correction,
-and Final 20-Case Held-Out Test Evaluation Engine.
+Out-of-Fold (OOF) Evaluation, 5-Fold Soft-Probability Ensembling, 8x TTA,
+Holm-Bonferroni Correction, and Final 20-Case Held-Out Test Evaluation Engine.
 
 Generates comprehensive evaluation summaries, paired statistics vs Baseline A,
 and dual-curve metrics (Time & Iterations).
@@ -16,7 +16,9 @@ import json
 import numpy as np
 from scipy.stats import wilcoxon
 
-sys.path.insert(0, '/home/akshitp/Benchmarking')
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 from models.common_config import (
     SPLITS_FINAL_PATH, HELD_OUT_TEST_PATH, BENCHMARK_RESULTS_DIR,
@@ -35,7 +37,7 @@ def get_gt_label(case_id):
 
 def main():
     print("======================================================================")
-    print(" 🚀 FINAL EVALUATION: 5-FOLD OOF, ENSEMBLING, & HELD-OUT TEST")
+    print(" 🚀 FINAL EVALUATION: 5-FOLD OOF, 8x TTA ENSEMBLING, & HELD-OUT TEST")
     print("======================================================================\n", flush=True)
 
     ranking_path = os.path.join(BENCHMARK_RESULTS_DIR, 'stage1_screening_rankings.json')
@@ -97,26 +99,36 @@ def main():
         print(f" Pooled OOF Recall      : {np.mean(all_oof_recalls):.4f}")
         print(f" Connected-Comp Recall  : {np.mean(all_oof_cc_recalls):.4f}")
 
-        # Final Held-Out Public Test Set Evaluation
-        print(f"\n 🛡️ EVALUATING ON 20-CASE HELD-OUT PUBLIC TEST SET...")
+        # 5-Fold Soft-Ensemble Evaluation on 20-Case Held-Out Test Set with 8x TTA
+        print(f"\n 🛡️ EVALUATING 5-FOLD SOFT ENSEMBLE WITH 8x TTA ON HELD-OUT PUBLIC TEST SET ({len(test_cases)} cases)...")
+        
+        # Export predictions for all 5 folds on held-out test cases
+        for fold in range(5):
+            ckpt_path = os.path.join(arch_dir, f'fold_{fold}', 'checkpoint_best.pth')
+            test_prob_dir = os.path.join(arch_dir, f'held_out_test_probabilities_fold_{fold}')
+            export_model_probabilities(arch_key, ckpt_path, test_cases, test_prob_dir, use_tta=True)
+
         test_dices = []
         for case_id in test_cases:
             gt = get_gt_label(case_id)
-            ckpt_path = os.path.join(arch_dir, 'fold_0', 'checkpoint_best.pth')
-            test_prob_dir = os.path.join(arch_dir, 'held_out_test_probabilities')
-            export_model_probabilities(arch_key, ckpt_path, [case_id], test_prob_dir)
+            fold_probs = []
             
-            prob_file = os.path.join(test_prob_dir, f"{case_id}.npz")
-            if os.path.exists(prob_file):
-                prob = np.load(prob_file)['probabilities'][1]
-                pred = (prob >= 0.50).astype(np.uint8)
+            for fold in range(5):
+                prob_file = os.path.join(arch_dir, f'held_out_test_probabilities_fold_{fold}', f"{case_id}.npz")
+                if os.path.exists(prob_file):
+                    prob = np.load(prob_file)['probabilities'][1]
+                    fold_probs.append(prob)
+
+            if fold_probs:
+                ensemble_prob = np.mean(fold_probs, axis=0)
+                pred = (ensemble_prob >= 0.50).astype(np.uint8)
             else:
                 pred = (np.random.rand(*gt.shape) > 0.5).astype(np.uint8)
                 
             test_dices.append(compute_dice(pred, gt))
 
         mean_test_dice = float(np.mean(test_dices))
-        print(f" 🏆 Held-Out Test Mean Dice ({len(test_cases)} cases): {mean_test_dice:.4f}")
+        print(f" 🏆 5-Fold Ensemble Held-Out Test Mean Dice: {mean_test_dice:.4f}")
 
         results_summary[arch_key] = {
             "oof_mean_dice": mean_oof_dice,

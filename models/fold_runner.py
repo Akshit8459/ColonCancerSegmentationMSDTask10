@@ -13,7 +13,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import SimpleITK as sitk
-from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
+from torch.utils.data import Dataset, DataLoader, RandomSampler
 
 try:
     import blosc2
@@ -21,17 +22,18 @@ try:
 except ImportError:
     HAS_BLOSC2 = False
 
-from models.common_config import (
+from monai.losses import DiceCELoss
+from .common_config import (
     ARCH_CONFIGS, PATCH_SIZE, TOTAL_EPOCHS, VALIDATION_CADENCE_EPOCHS,
     EARLY_STOP_DICE_FLOOR, BENCHMARK_RESULTS_DIR, PREPROC_DATASET_DIR, RAW_DATASET_DIR
 )
-from models.model_factory import get_model
-from models.evaluation import compute_dice, run_sliding_window
+from .model_factory import get_model
+from .evaluation import compute_dice, run_sliding_window
 
 def load_case_data(case_id):
     """
     Robust reader for preprocessed 3D CT volumes supporting .b2nd, .npz, and .nii.gz formats.
-    Returns: img_arr (1, Z, Y, X), lbl_arr (1, Z, Y, X) as float32.
+    Returns: img_arr (1, Z, Y, X), lbl_arr (1, Z, Y, X) as float32 clamped to [0, 1].
     """
     prep_dir = os.path.join(PREPROC_DATASET_DIR, 'nnUNetPlans_3d_fullres')
     img_b2nd = os.path.join(prep_dir, f"{case_id}.b2nd")
@@ -44,12 +46,12 @@ def load_case_data(case_id):
             img_arr = img_arr[np.newaxis, ...]
         if lbl_arr.ndim == 3:
             lbl_arr = lbl_arr[np.newaxis, ...]
-        return img_arr.astype(np.float32), lbl_arr.astype(np.float32)
+        return img_arr.astype(np.float32), np.clip(lbl_arr, 0, 1).astype(np.float32)
         
     npz_path = os.path.join(prep_dir, f"{case_id}.npz")
     if os.path.exists(npz_path):
         data = np.load(npz_path)['data']
-        return data[0:1].astype(np.float32), data[1:2].astype(np.float32)
+        return data[0:1].astype(np.float32), np.clip(data[1:2], 0, 1).astype(np.float32)
 
     raw_img = os.path.join(RAW_DATASET_DIR, 'imagesTr', f"{case_id}_0000.nii.gz")
     raw_lbl = os.path.join(RAW_DATASET_DIR, 'labelsTr', f"{case_id}.nii.gz")
@@ -58,7 +60,7 @@ def load_case_data(case_id):
         lbl_sitk = sitk.ReadImage(raw_lbl)
         img_arr = sitk.GetArrayFromImage(img_sitk)[np.newaxis, ...]
         lbl_arr = sitk.GetArrayFromImage(lbl_sitk)[np.newaxis, ...]
-        return img_arr.astype(np.float32), lbl_arr.astype(np.float32)
+        return img_arr.astype(np.float32), np.clip(lbl_arr, 0, 1).astype(np.float32)
 
     # Synthetic fallback for debug environment
     img_arr = np.random.randn(1, 64, 128, 128).astype(np.float32)
@@ -68,6 +70,7 @@ def load_case_data(case_id):
 class CTDataset(Dataset):
     """
     Dataset wrapper for training patches extracted from preprocessed volumes.
+    Uses 50% foreground-centric sampling & 50% random spatial cropping.
     """
     def __init__(self, case_ids):
         self.case_ids = case_ids
@@ -79,17 +82,24 @@ class CTDataset(Dataset):
         case_id = self.case_ids[idx]
         image, label = load_case_data(case_id)
 
-        # Crop / pad to fixed target patch size
         z, y, x = image.shape[1:]
         pz, py, px = PATCH_SIZE
-        
-        sz = max(0, (z - pz) // 2) if z > pz else 0
-        sy = max(0, (y - py) // 2) if y > py else 0
-        sx = max(0, (x - px) // 2) if x > px else 0
-        
+
+        fg_coords = np.argwhere(label[0] == 1)
+        if len(fg_coords) > 0 and np.random.rand() < 0.8:
+            fg_idx = np.random.choice(len(fg_coords))
+            cz, cy, cx = fg_coords[fg_idx]
+            sz = max(0, min(cz - pz // 2, z - pz)) if z > pz else 0
+            sy = max(0, min(cy - py // 2, y - py)) if y > py else 0
+            sx = max(0, min(cx - px // 2, x - px)) if x > px else 0
+        else:
+            sz = np.random.randint(0, max(1, z - pz + 1)) if z > pz else 0
+            sy = np.random.randint(0, max(1, y - py + 1)) if y > py else 0
+            sx = np.random.randint(0, max(1, x - px + 1)) if x > px else 0
+
         img_crop = image[:, sz:sz+pz, sy:sy+py, sx:sx+px]
         lbl_crop = label[:, sz:sz+pz, sy:sy+py, sx:sx+px]
-        
+
         if img_crop.shape[1:] != PATCH_SIZE:
             pad_z = max(0, pz - img_crop.shape[1])
             pad_y = max(0, py - img_crop.shape[2])
@@ -106,9 +116,10 @@ def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
     model.eval()
     dices = []
     
-    for case_id in val_cases:
+    val_pbar = tqdm(val_cases, desc=" 🔍 Validating", leave=False)
+    for case_id in val_pbar:
         image_arr, label_arr = load_case_data(case_id)
-        lbl = label_arr[0] # (Z, Y, X)
+        lbl = np.clip(label_arr[0], 0, 1) # (Z, Y, X)
 
         image_tensor = torch.from_numpy(image_arr).float() # (1, Z, Y, X)
         
@@ -117,6 +128,7 @@ def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
         
         d = compute_dice(pred, lbl)
         dices.append(d)
+        val_pbar.set_postfix(dice=f"{d:.4f}")
         
     model.train()
     return float(np.mean(dices)) if len(dices) > 0 else 0.0
@@ -137,11 +149,25 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=arch_cfg["lr"], weight_decay=arch_cfg["weight_decay"])
 
-    scaler = torch.cuda.amp.GradScaler(enabled=True)
-    criterion = nn.CrossEntropyLoss()
+    scaler = torch.amp.GradScaler('cuda', enabled=True)
+    criterion = DiceCELoss(
+        to_onehot_y=True,
+        softmax=True,
+        include_background=False,
+        weight=torch.tensor([1.0, 2.0], device=device)
+    )
 
     train_dataset = CTDataset(train_cases)
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, drop_last=True) # Micro-batch 1 for Tier 2 fallback
+    num_patches_per_volume = 25  # Typical nnU-Net value
+    steps_per_epoch = len(train_cases) * num_patches_per_volume
+
+    sampler = RandomSampler(train_dataset, replacement=True, num_samples=steps_per_epoch)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=1,
+        sampler=sampler,
+        drop_last=True
+    )
 
     grad_accum_steps = 2
     best_val_dice = -1.0
@@ -156,21 +182,25 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         epoch_loss = 0.0
         optimizer.zero_grad()
         
-        for step, (img, lbl) in enumerate(train_loader):
-            img, lbl = img.to(device), lbl.to(device).squeeze(1)
+        pbar = tqdm(train_loader, desc=f" Epoch {epoch:02d}/{TOTAL_EPOCHS} [{arch_key}]", leave=True)
+        for step, (img, lbl) in enumerate(pbar):
+            img, lbl = img.to(device), lbl.to(device)
             
-            with torch.cuda.amp.autocast(enabled=True):
+            with torch.amp.autocast('cuda', enabled=True):
                 logits = model(img)
                 loss = criterion(logits, lbl) / grad_accum_steps
 
             scaler.scale(loss).backward()
-            epoch_loss += loss.item() * grad_accum_steps
+            batch_loss = loss.item() * grad_accum_steps
+            epoch_loss += batch_loss
             global_step += 1
 
             if (step + 1) % grad_accum_steps == 0:
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
+
+            pbar.set_postfix(loss=f"{batch_loss:.4f}", avg_loss=f"{epoch_loss / (step + 1):.4f}")
 
         # Validation Cadence (Every 5 Epochs)
         if epoch % VALIDATION_CADENCE_EPOCHS == 0:

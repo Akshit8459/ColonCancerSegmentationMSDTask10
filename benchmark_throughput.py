@@ -16,7 +16,9 @@ import json
 import torch
 import torch.nn as nn
 
-sys.path.insert(0, '/home/akshitp/Benchmarking')
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 from models.common_config import ARCH_CONFIGS, PATCH_SIZE, BENCHMARK_RESULTS_DIR, FORCE_FALLBACK_TIER
 from models.model_factory import get_model

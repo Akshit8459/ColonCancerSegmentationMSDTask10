@@ -5,10 +5,9 @@ evaluation.py
 Evaluation engine for MSD Task10 Colon Benchmarking Suite.
 Computes:
 - Full-volume 3D sliding window inference via MONAI's sliding_window_inference.
+- 8x Test-Time Augmentation (TTA) across 3D spatial flip combinations.
 - Foreground Dice, HD95, Precision, Recall/Sensitivity.
 - Lesion-wise / Connected-Component Recall.
-- Subgroup stratification (Small <2cm, Medium 2-5cm, Large >5cm; Single vs Multi-lesion).
-- Sliding-window inference with fast stride (0.75) for training validation and full stride (0.5 + 8x TTA) for final test.
 - Holm-Bonferroni adjusted Wilcoxon signed-rank tests vs Baseline A.
 """
 
@@ -21,9 +20,9 @@ from scipy.ndimage import label
 from scipy.stats import wilcoxon
 from monai.inferers import sliding_window_inference
 
-def run_sliding_window(model, image, patch_size=(64, 128, 128), stride=0.75, device="cuda:0"):
+def run_sliding_window(model, image, patch_size=(64, 128, 128), stride=0.75, device="cuda:0", use_tta=False):
     """
-    Runs full-volume 3D sliding-window inference.
+    Runs full-volume 3D sliding-window inference with optional 8x Test-Time Augmentation (TTA).
     image: torch tensor (1, C, Z, Y, X) or (C, Z, Y, X)
     returns: logits (1, C_out, Z, Y, X)
     """
@@ -32,18 +31,52 @@ def run_sliding_window(model, image, patch_size=(64, 128, 128), stride=0.75, dev
         image = image.unsqueeze(0) # (1, C, Z, Y, X)
         
     overlap = max(0.01, 1.0 - stride)
-    
-    with torch.no_grad():
-        with torch.cuda.amp.autocast(enabled=True):
-            logits = sliding_window_inference(
-                inputs=image.to(device),
-                roi_size=patch_size,
-                sw_batch_size=1,
-                predictor=model,
-                overlap=overlap,
-                mode="gaussian"
-            )
-    return logits
+    image = image.to(device)
+
+    def _single_pass(img_tensor):
+        with torch.no_grad():
+            with torch.amp.autocast('cuda', enabled=True):
+                return sliding_window_inference(
+                    inputs=img_tensor,
+                    roi_size=patch_size,
+                    sw_batch_size=1,
+                    predictor=model,
+                    overlap=overlap,
+                    mode="gaussian"
+                )
+
+    if not use_tta:
+        return _single_pass(image)
+
+    # 8x TTA across 3D spatial flip combinations: (x, y, z flips)
+    spatial_axes = [2, 3, 4]  # (Z, Y, X) in (B, C, Z, Y, X)
+    tta_logits = None
+    count = 0
+
+    for flip_z in [False, True]:
+        for flip_y in [False, True]:
+            for flip_x in [False, True]:
+                curr_img = image.clone()
+                flips = []
+                if flip_z: flips.append(2)
+                if flip_y: flips.append(3)
+                if flip_x: flips.append(4)
+
+                if flips:
+                    curr_img = torch.flip(curr_img, dims=flips)
+
+                logits = _single_pass(curr_img)
+
+                if flips:
+                    logits = torch.flip(logits, dims=flips)
+
+                if tta_logits is None:
+                    tta_logits = logits
+                else:
+                    tta_logits += logits
+                count += 1
+
+    return tta_logits / float(count)
 
 def compute_dice(pred, gt):
     pred = (pred > 0).astype(np.uint8)

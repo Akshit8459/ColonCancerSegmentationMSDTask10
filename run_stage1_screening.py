@@ -16,7 +16,9 @@ import sys
 import json
 import numpy as np
 
-sys.path.insert(0, '/home/akshitp/Benchmarking')
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 from models.common_config import (
     ARCH_CONFIGS, SPLITS_FINAL_PATH, STAGE1_FIXED_VAL_CASES,
