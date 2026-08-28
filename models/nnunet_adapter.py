@@ -2,26 +2,29 @@
 """
 nnunet_adapter.py
 =============================================================================
-Experiment A Adapter: Standard 3D nnU-Net Baseline.
-Uses 3D UNet with SGD + Nesterov momentum + Polynomial LR schedule.
+Experiment A Adapter: Official nnU-Net 3D Architecture via MONAI DynUNet.
+Matches nnU-Net 3d_fullres kernel sizes, strides, InstanceNorm, and LeakyReLU.
 """
 
-import torch
 import torch.nn as nn
-from monai.networks.nets import UNet
+from monai.networks.nets import DynUNet
 
 class nnUNetAdapter(nn.Module):
-    def __init__(self, in_channels=1, out_channels=2):
+    """
+    nnU-Net 3D full-resolution architecture proxy via MONAI DynUNet.
+    """
+    def __init__(self, in_channels=1, out_channels=2, deep_supervision=False):
         super().__init__()
-        # Standard 3D UNet matching nnU-Net 3d_fullres depth
-        self.net = UNet(
+        self.net = DynUNet(
             spatial_dims=3,
             in_channels=in_channels,
             out_channels=out_channels,
-            channels=(32, 64, 128, 256, 320, 320),
-            strides=(2, 2, 2, 2, 2),
-            num_res_units=2,
-            norm="instance"
+            kernel_size=[[3,3,3], [3,3,3], [3,3,3], [3,3,3], [3,3,3]],
+            strides=[[1,1,1], [2,2,2], [2,2,2], [2,2,2], [2,2,2]],
+            upsample_kernel_size=[[2,2,2], [2,2,2], [2,2,2], [2,2,2]],
+            norm_name='instance',
+            act_name='leakyrelu',
+            deep_supervision=deep_supervision
         )
 
     def forward(self, x):

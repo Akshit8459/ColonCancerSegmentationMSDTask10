@@ -158,7 +158,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
     )
 
     train_dataset = CTDataset(train_cases)
-    num_patches_per_volume = 25  # Typical nnU-Net value
+    num_patches_per_volume = 15  # Typical nnU-Net value
     steps_per_epoch = len(train_cases) * num_patches_per_volume
 
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=steps_per_epoch)
