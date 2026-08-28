@@ -8,7 +8,7 @@ Uses tri-orientation 3D Mamba state-space blocks with gradient accumulation.
 
 import torch
 import torch.nn as nn
-from monai.networks.blocks import ResidualUnit, UpSample
+from monai.networks.blocks import ResidualUnit
 
 class TriOrientationMambaBlock3D(nn.Module):
     """
@@ -17,7 +17,6 @@ class TriOrientationMambaBlock3D(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.norm = nn.InstanceNorm3d(dim)
-        # Axial, Coronal, Sagittal depthwise 3D convolutions
         self.conv_axial = nn.Conv3d(dim, dim, kernel_size=(3, 1, 1), padding=(1, 0, 0), groups=dim)
         self.conv_coronal = nn.Conv3d(dim, dim, kernel_size=(1, 3, 1), padding=(0, 1, 0), groups=dim)
         self.conv_sagittal = nn.Conv3d(dim, dim, kernel_size=(1, 1, 3), padding=(0, 0, 1), groups=dim)
@@ -45,7 +44,8 @@ class SegMamba3D(nn.Module):
         self.stem = nn.Conv3d(in_channels, features[0], kernel_size=3, padding=1)
         self.blocks = nn.ModuleList([TriOrientationMambaBlock3D(f) for f in features])
         self.downs = nn.ModuleList([nn.Conv3d(features[i], features[i+1], kernel_size=2, stride=2) for i in range(len(features)-1)])
-        self.ups = nn.ModuleList([UpSample(3, features[i+1], features[i], scale_factor=2, mode="nontrainable") for i in range(len(features)-1)])
+        
+        self.ups = nn.ModuleList([nn.ConvTranspose3d(features[i+1], features[i], kernel_size=2, stride=2) for i in range(len(features)-1)])
         self.decoders = nn.ModuleList([ResidualUnit(3, features[i]*2, features[i], strides=1, subunits=1, norm="instance") for i in range(len(features)-1)])
         
         self.out_conv = nn.Conv3d(features[0], out_channels, kernel_size=1)

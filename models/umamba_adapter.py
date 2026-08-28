@@ -9,7 +9,7 @@ and a 3D UNet decoder.
 
 import torch
 import torch.nn as nn
-from monai.networks.blocks import ResidualUnit, UpSample
+from monai.networks.blocks import ResidualUnit
 
 class MambaBlock3D(nn.Module):
     """
@@ -57,7 +57,7 @@ class UMamba3D(nn.Module):
         rev_features = list(reversed(features))
         curr_in = features[-1] * 2
         for feat in rev_features:
-            self.ups.append(UpSample(3, curr_in, feat, scale_factor=2, mode="nontrainable"))
+            self.ups.append(nn.ConvTranspose3d(curr_in, feat, kernel_size=2, stride=2))
             self.decoders.append(ResidualUnit(3, feat * 2, feat, strides=1, subunits=2, norm="instance"))
             curr_in = feat
 

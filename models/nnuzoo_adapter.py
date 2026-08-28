@@ -3,12 +3,12 @@
 nnuzoo_adapter.py
 =============================================================================
 Experiment F Adapter: nnUZoo / X2Net Hybrid Encoder-Swap Architecture.
-Combines 3D ConvNeXt / X2Net hybrid blocks with 3D UNet decoder.
+Combines 3D ConvNeXt / X2Net hybrid blocks with 3D UNet decoder using ConvTranspose3d upsampling.
 """
 
 import torch
 import torch.nn as nn
-from monai.networks.blocks import ResidualUnit, UpSample
+from monai.networks.blocks import ResidualUnit
 
 class ConvNeXtBlock3D(nn.Module):
     """
@@ -36,9 +36,22 @@ class X2Net3D(nn.Module):
         super().__init__()
         self.stem = nn.Conv3d(in_channels, features[0], kernel_size=3, padding=1)
         self.blocks = nn.ModuleList([ConvNeXtBlock3D(f) for f in features])
-        self.downs = nn.ModuleList([nn.Conv3d(features[i], features[i+1], kernel_size=2, stride=2) for i in range(len(features)-1)])
-        self.ups = nn.ModuleList([UpSample(3, features[i+1], features[i], scale_factor=2, mode="nontrainable") for i in range(len(features)-1)])
-        self.decoders = nn.ModuleList([ResidualUnit(3, features[i]*2, features[i], strides=1, subunits=1, norm="instance") for i in range(len(features)-1)])
+        self.downs = nn.ModuleList([
+            nn.Conv3d(features[i], features[i+1], kernel_size=2, stride=2)
+            for i in range(len(features)-1)
+        ])
+        
+        # Transposed convolution for spatial upsampling + channel reduction
+        self.ups = nn.ModuleList([
+            nn.ConvTranspose3d(features[i+1], features[i], kernel_size=2, stride=2)
+            for i in range(len(features)-1)
+        ])
+        
+        # Decoder ResidualUnits: after concatenation, channels = features[i] (from up) + features[i] (skip) = 2*features[i]
+        self.decoders = nn.ModuleList([
+            ResidualUnit(3, features[i]*2, features[i], strides=1, subunits=1, norm="instance")
+            for i in range(len(features)-1)
+        ])
         
         self.out_conv = nn.Conv3d(features[0], out_channels, kernel_size=1)
 
