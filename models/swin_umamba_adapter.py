@@ -32,7 +32,9 @@ class SwinUMamba2D(nn.Module):
         # x shape: (B, 3, H, W) 2D slice context
         feats = self.encoder(x)
         bot = feats[-1] # Deepest feature map
-        
+        if bot.ndim == 4 and bot.shape[-1] == 768:
+            bot = bot.permute(0, 3, 1, 2) # (B, H, W, C) -> (B, C, H, W)
+            
         x = self.conv1(bot)
         x = self.up1(x)
         x = self.conv2(x)

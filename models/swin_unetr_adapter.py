@@ -10,12 +10,12 @@ import torch
 import torch.nn as nn
 from monai.networks.nets import SwinUNETR
 
-def build_swin_unetr_model(in_channels=1, out_channels=2, img_size=(64, 128, 128)):
+def build_swin_unetr_model(in_channels=1, out_channels=2):
     model = SwinUNETR(
-        img_size=img_size,
         in_channels=in_channels,
         out_channels=out_channels,
         feature_size=48,
-        use_checkpoint=True
+        use_checkpoint=True,
+        spatial_dims=3
     )
     return model
