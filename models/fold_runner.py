@@ -174,12 +174,17 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         weight=torch.tensor([1.0, 2.0], device=device)
     )
 
-    # Pre-cache all training volumes in RAM
-    print(" 📦 Caching training volumes into RAM for 0-latency I/O...", flush=True)
+    # Pre-cache all training volumes in RAM using multi-core parallel threads
+    print(" 📦 Caching training volumes into RAM across multi-core CPU threads...", flush=True)
+    from concurrent.futures import ThreadPoolExecutor
+    
+    def _read_case(c_id):
+        return c_id, load_case_data(c_id)
+        
     volume_cache = {}
-    for case_id in tqdm(train_cases, desc=" ⚡ RAM Caching", leave=False):
-        img, lbl = load_case_data(case_id)
-        volume_cache[case_id] = (img, lbl)
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        cached_items = list(tqdm(executor.map(_read_case, train_cases), total=len(train_cases), desc=" ⚡ Parallel RAM Caching", leave=False))
+        volume_cache = dict(cached_items)
 
     train_dataset = CTDataset(train_cases, volume_cache=volume_cache)
     num_patches_per_volume = 20  # Standardized 20 patches per volume
