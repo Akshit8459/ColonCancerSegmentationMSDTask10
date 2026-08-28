@@ -197,8 +197,8 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
     criterion = DiceCELoss(
         to_onehot_y=True,
         softmax=True,
-        include_background=False,
-        weight=torch.tensor([1.0, 2.0], device=device)
+        include_background=True,
+        weight=torch.tensor([0.1, 0.9], device=device)
     )
 
     # Pre-cache all training volumes in RAM using multi-core parallel threads
