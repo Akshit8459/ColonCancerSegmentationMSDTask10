@@ -83,11 +83,9 @@ class CTDataset(Dataset):
         self.augment = augment
         if augment:
             self.transform = Compose([
-                RandFlipd(keys=['image', 'label'], prob=0.5, spatial_axis=[0, 1, 2]),
-                RandRotated(keys=['image', 'label'], prob=0.3, range_x=0.1, range_y=0.1, range_z=0.1, mode=['bilinear', 'nearest']),
-                RandZoomd(keys=['image', 'label'], prob=0.2, min_zoom=0.9, max_zoom=1.1, mode=['bilinear', 'nearest']),
-                RandGaussianNoised(keys=['image'], prob=0.1, std=0.01),
-                RandAdjustContrastd(keys=['image'], prob=0.1, gamma=(0.8, 1.2))
+                RandFlipd(keys=['image', 'label'], prob=0.3, spatial_axis=[0, 1, 2]),
+                RandRotated(keys=['image', 'label'], prob=0.2, range_x=0.05, range_y=0.05, range_z=0.05, mode=['bilinear', 'nearest']),
+                RandZoomd(keys=['image', 'label'], prob=0.1, min_zoom=0.95, max_zoom=1.05, mode=['bilinear', 'nearest'])
             ])
         else:
             self.transform = None
