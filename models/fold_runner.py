@@ -11,6 +11,7 @@ import os
 import time
 import json
 import torch
+import torch._dynamo
 import torch.nn as nn
 import numpy as np
 import SimpleITK as sitk
@@ -180,7 +181,6 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
     # Enable PyTorch compilation for supported models
     if hasattr(torch, 'compile'):
         try:
-            import torch._dynamo
             torch._dynamo.config.cache_size_limit = 64
             torch._dynamo.config.suppress_errors = True
             model = torch.compile(model, mode="reduce-overhead", dynamic=True)
