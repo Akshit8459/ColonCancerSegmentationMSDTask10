@@ -1,4 +1,6 @@
 __pycache__/
 *.pyc
+*.pth
 results/stage1_screening/
 results/stage2_confirmation/
+results/test_speed_run/
