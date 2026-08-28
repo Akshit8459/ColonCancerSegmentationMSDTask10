@@ -248,6 +248,9 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
             
             with torch.amp.autocast('cuda', enabled=True):
                 logits = model(img)
+                if isinstance(logits, torch.Tensor) and logits.dim() == 6:
+                    logits = [logits[:, :, i] for i in range(logits.shape[2])]
+                
                 if isinstance(logits, (list, tuple)):
                     loss = sum(criterion(out, lbl) for out in logits) / float(len(logits))
                 else:
