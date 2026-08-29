@@ -217,7 +217,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         cached_items = list(tqdm(executor.map(_read_case, train_cases), total=len(train_cases), desc=" ⚡ Parallel RAM Caching", leave=False))
         volume_cache = dict(cached_items)
 
-    train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=True)
+    train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=False)
     num_patches_per_volume = 30  # Increased to 30 patches per volume (2520 samples/epoch)
     total_patches_per_epoch = len(train_cases) * num_patches_per_volume
 
