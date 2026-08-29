@@ -78,7 +78,7 @@ class CTDataset(Dataset):
     Dataset wrapper for training patches extracted from RAM-cached preprocessed volumes.
     Uses 80% foreground-centric sampling & MONAI 3D spatial/intensity data augmentations.
     """
-    def __init__(self, case_ids, volume_cache=None, augment=True):
+    def __init__(self, case_ids, volume_cache=None, augment=False):
         self.case_ids = case_ids
         self.volume_cache = volume_cache
         self.augment = augment
@@ -139,8 +139,10 @@ class CTDataset(Dataset):
 def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
     """
     Evaluates model on validation cases using full-volume 3D sliding-window inference.
+    Uses unwrapped model (_orig_mod) to avoid torch.compile / Triton CUDA graph memory spikes.
     """
-    model.eval()
+    eval_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+    eval_model.eval()
     dices = []
     
     val_pbar = tqdm(val_cases, desc=" 🔍 Validating", leave=False)
@@ -150,8 +152,10 @@ def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
 
         image_tensor = torch.from_numpy(image_arr).float() # (1, Z, Y, X)
         
-        logits = run_sliding_window(model, image_tensor, patch_size=PATCH_SIZE, stride=fast_stride, device=device)
-        if isinstance(logits, (list, tuple)):
+        logits = run_sliding_window(eval_model, image_tensor, patch_size=PATCH_SIZE, stride=fast_stride, device=device)
+        if isinstance(logits, torch.Tensor) and logits.dim() == 6:
+            logits = logits[:, :, 0]
+        elif isinstance(logits, (list, tuple)):
             logits = logits[0]
             
         pred = torch.argmax(logits, dim=1).squeeze(0).cpu().numpy() # (Z, Y, X)
@@ -272,6 +276,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
 
         # Validation Cadence (Every 5 Epochs)
         if epoch % VALIDATION_CADENCE_EPOCHS == 0:
+            torch.cuda.empty_cache()
             val_dice = validate_model(model, val_cases, device, is_2d=arch_cfg["is_2d"])
             elapsed_time = time.time() - start_wall_clock
             
