@@ -198,11 +198,9 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         optimizer = torch.optim.AdamW(model.parameters(), lr=arch_cfg["lr"], weight_decay=arch_cfg["weight_decay"])
 
     scaler = torch.amp.GradScaler('cuda', enabled=True)
-    criterion= DiceCELoss(
+    criterion = DiceCELoss(
         to_onehot_y=True,
-        softmax=True,
-        include_background=True,
-        weight=torch.tensor([0.001, 0.999], device=device)
+        softmax=True
     )
 
     # Pre-cache all training volumes in RAM using multi-core parallel threads
