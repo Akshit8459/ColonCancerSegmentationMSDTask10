@@ -64,7 +64,7 @@ ARCH_CONFIGS = {
         "optimizer": "SGD",
         "momentum": 0.99,
         "weight_decay": 3e-5,
-        "lr": 0.01,
+        "lr": 0.001,
         "lr_scheduler": "poly",
         "poly_exponent": 0.9,
         "is_2d": False
