@@ -105,7 +105,7 @@ class CTDataset(Dataset):
         pz, py, px = PATCH_SIZE
 
         fg_coords = np.argwhere(label[0] == 1)
-        if len(fg_coords) > 0 and np.random.rand() < 0.9:
+        if len(fg_coords) > 0 and np.random.rand() < 1.0:
             fg_idx = np.random.choice(len(fg_coords))
             cz, cy, cx = fg_coords[fg_idx]
             sz = max(0, min(cz - pz // 2, z - pz)) if z > pz else 0
@@ -118,6 +118,9 @@ class CTDataset(Dataset):
 
         img_crop = image[:, sz:sz+pz, sy:sy+py, sx:sx+px]
         lbl_crop = label[:, sz:sz+pz, sy:sy+py, sx:sx+px]
+
+        if idx == 0:
+            print(f" 🔍 [Dataset] Patch label sum: {lbl_crop.sum()}, patch shape: {lbl_crop.shape}")
 
         if img_crop.shape[1:] != PATCH_SIZE:
             pad_z = max(0, pz - img_crop.shape[1])
@@ -163,6 +166,7 @@ def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
         d = compute_dice(pred, lbl)
         dices.append(d)
         val_pbar.set_postfix(dice=f"{d:.4f}")
+        print(f" 🔍 [Validation] Case {case_id}: GT sum = {lbl.sum():.0f}, Pred sum = {pred.sum():.0f}, Dice = {d:.4f}", flush=True)
         
     model.train()
     return float(np.mean(dices)) if len(dices) > 0 else 0.0
@@ -217,7 +221,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         volume_cache = dict(cached_items)
 
     train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=False)
-    num_patches_per_volume = 30  # Increased to 30 patches per volume (2520 samples/epoch)
+    num_patches_per_volume = 20
     total_patches_per_epoch = len(train_cases) * num_patches_per_volume
 
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=total_patches_per_epoch)
@@ -260,6 +264,12 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
                 else:
                     loss = criterion(logits, lbl)
                 loss = loss / grad_accum_steps
+
+                if epoch == 1 and step == 0:
+                    with torch.no_grad():
+                        out_t = logits[0] if isinstance(logits, (list, tuple)) else logits
+                        pred_t = torch.argmax(out_t, dim=1)
+                        print(f" 🔍 [Train Step 0] Label sum = {lbl.sum().item()}, Pred sum = {pred_t.sum().item()}", flush=True)
 
             scaler.scale(loss).backward()
             batch_loss = loss.item() * grad_accum_steps
