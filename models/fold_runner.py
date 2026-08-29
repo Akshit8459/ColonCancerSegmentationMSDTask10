@@ -182,15 +182,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
 
     model = get_model(arch_key).to(device)
 
-    # Enable PyTorch compilation for supported models
-    if hasattr(torch, 'compile'):
-        try:
-            torch._dynamo.config.cache_size_limit = 64
-            torch._dynamo.config.suppress_errors = True
-            model = torch.compile(model, mode="reduce-overhead", dynamic=True)
-            print(" 🚀 Accelerated model with torch.compile!")
-        except Exception as e:
-            print(f" ⚠️ Could not compile model: {e}")
+    # Standard cuDNN PyTorch Eager mode with AMP autocast (Instant startup in < 1 second)
     
     if arch_cfg["optimizer"] == "SGD":
         optimizer = torch.optim.SGD(model.parameters(), lr=arch_cfg["lr"], momentum=arch_cfg["momentum"], weight_decay=arch_cfg["weight_decay"])
@@ -216,7 +208,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         volume_cache = dict(cached_items)
 
     train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=False)
-    num_patches_per_volume = 30  # 30 patches per volume (2520 samples/epoch)
+    num_patches_per_volume = 20  # 30 patches per volume (2520 samples/epoch)
     total_patches_per_epoch = len(train_cases) * num_patches_per_volume
 
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=total_patches_per_epoch)
