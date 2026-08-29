@@ -31,4 +31,4 @@ class nnUNetAdapter(nn.Module):
         return self.net(x)
 
 def build_nnunet_model(in_channels=1, out_channels=2):
-    return nnUNetAdapter(in_channels=in_channels, out_channels=out_channels, deep_supervision=True)
+    return nnUNetAdapter(in_channels=in_channels, out_channels=out_channels, deep_supervision=False)
