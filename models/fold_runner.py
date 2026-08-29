@@ -105,7 +105,7 @@ class CTDataset(Dataset):
         pz, py, px = PATCH_SIZE
 
         fg_coords = np.argwhere(label[0] == 1)
-        if len(fg_coords) > 0 and np.random.rand() < 0.8:
+        if len(fg_coords) > 0 and np.random.rand() < 0.5:
             fg_idx = np.random.choice(len(fg_coords))
             cz, cy, cx = fg_coords[fg_idx]
             sz = max(0, min(cz - pz // 2, z - pz)) if z > pz else 0
@@ -220,7 +220,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         volume_cache = dict(cached_items)
 
     train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=False)
-    num_patches_per_volume = 20
+    num_patches_per_volume = 15
     total_patches_per_epoch = len(train_cases) * num_patches_per_volume
 
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=total_patches_per_epoch)
