@@ -119,9 +119,6 @@ class CTDataset(Dataset):
         img_crop = image[:, sz:sz+pz, sy:sy+py, sx:sx+px]
         lbl_crop = label[:, sz:sz+pz, sy:sy+py, sx:sx+px]
 
-        if idx == 0:
-            print(f" 🔍 [Dataset] Patch label sum: {lbl_crop.sum()}, patch shape: {lbl_crop.shape}")
-
         if img_crop.shape[1:] != PATCH_SIZE:
             pad_z = max(0, pz - img_crop.shape[1])
             pad_y = max(0, py - img_crop.shape[2])
@@ -166,7 +163,6 @@ def validate_model(model, val_cases, device, is_2d=False, fast_stride=0.75):
         d = compute_dice(pred, lbl)
         dices.append(d)
         val_pbar.set_postfix(dice=f"{d:.4f}")
-        print(f" 🔍 [Validation] Case {case_id}: GT sum = {lbl.sum():.0f}, Pred sum = {pred.sum():.0f}, Dice = {d:.4f}", flush=True)
         
     model.train()
     return float(np.mean(dices)) if len(dices) > 0 else 0.0
@@ -263,12 +259,6 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
                 else:
                     loss = criterion(logits, lbl)
                 loss = loss / grad_accum_steps
-
-                if epoch == 1 and step == 0:
-                    with torch.no_grad():
-                        out_t = logits[0] if isinstance(logits, (list, tuple)) else logits
-                        pred_t = torch.argmax(out_t, dim=1)
-                        print(f" 🔍 [Train Step 0] Label sum = {lbl.sum().item()}, Pred sum = {pred_t.sum().item()}", flush=True)
 
             scaler.scale(loss).backward()
             batch_loss = loss.item() * grad_accum_steps
