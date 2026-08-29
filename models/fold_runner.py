@@ -24,7 +24,7 @@ try:
 except ImportError:
     HAS_BLOSC2 = False
 
-from monai.losses import DiceCELoss
+from monai.losses import DiceLoss, DiceCELoss
 from monai.transforms import (
     Compose, RandFlipd, RandRotated, RandZoomd, RandGaussianNoised, RandAdjustContrastd
 )
@@ -198,9 +198,10 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         optimizer = torch.optim.AdamW(model.parameters(), lr=arch_cfg["lr"], weight_decay=arch_cfg["weight_decay"])
 
     scaler = torch.amp.GradScaler('cuda', enabled=True)
-    criterion = DiceCELoss(
+    criterion = DiceLoss(
         to_onehot_y=True,
-        softmax=True
+        softmax=True,
+        include_background=False
     )
 
     # Pre-cache all training volumes in RAM using multi-core parallel threads
