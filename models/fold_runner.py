@@ -207,8 +207,8 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         cached_items = list(tqdm(executor.map(_read_case, train_cases), total=len(train_cases), desc=" ⚡ Parallel RAM Caching", leave=False))
         volume_cache = dict(cached_items)
 
-    train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=False)
-    num_patches_per_volume = 20  # 30 patches per volume (2520 samples/epoch)
+    train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=True)
+    num_patches_per_volume = 50  # 50 patches per volume (4200 samples/epoch)
     total_patches_per_epoch = len(train_cases) * num_patches_per_volume
 
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=total_patches_per_epoch)
@@ -222,7 +222,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         drop_last=True
     )
 
-    patience = 2                # Stop if no improvement for 2 consecutive validation checks (10 epochs)
+    patience = 10               # Stop if no improvement for 10 consecutive validation checks (50 epochs)
     patience_counter = 0
     best_val_dice = -1.0
     best_epoch = -1
@@ -247,7 +247,12 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
                     logits = [logits[:, :, i] for i in range(logits.shape[2])]
                 
                 if isinstance(logits, (list, tuple)):
-                    loss = sum(criterion(out, lbl) for out in logits) / float(len(logits))
+                    losses = []
+                    for out in logits:
+                        scale = out.shape[2:]  # (Z, Y, X)
+                        lbl_scaled = torch.nn.functional.interpolate(lbl.float(), size=scale, mode='nearest').long()
+                        losses.append(criterion(out, lbl_scaled))
+                    loss = sum(losses) / float(len(logits))
                 else:
                     loss = criterion(logits, lbl)
                 loss = loss / grad_accum_steps

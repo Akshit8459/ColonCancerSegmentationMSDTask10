@@ -41,7 +41,7 @@ FORCE_FALLBACK_TIER = 2          # Tier 2: Micro-batch 1 + 2x Grad Accumulation
 STAGE2_MAX_FINALISTS = 2         # Exp A (Anchor) + Stage 1 Winner
 EARLY_STOP_DICE_FLOOR = 0.45     # Epoch 15 early termination threshold in Stage 1
 
-TOTAL_EPOCHS = 25
+TOTAL_EPOCHS = 150
 VALIDATION_CADENCE_EPOCHS = 5
 
 # Safe maximum per-architecture batch sizes (measured on 32GB VRAM)
@@ -52,6 +52,7 @@ MODEL_MAX_BATCH = {
     "D_SegMamba": 8,
     "E_SwinUNETR": 4,
     "F_nnUZoo": 4,
+    "G_nnUNet": 8,
 }
 
 # Fixed performance-stratified 5-case validation subset from Fold 0 validation split
@@ -112,6 +113,16 @@ ARCH_CONFIGS = {
         "lr": 1e-4,
         "lr_scheduler": "cosine",
         "warmup_epochs": 2,
+        "is_2d": False
+    },
+    "G_nnUNet": {
+        "name": "nnU-Net 3D Deep Supervision",
+        "optimizer": "SGD",
+        "momentum": 0.99,
+        "weight_decay": 3e-5,
+        "lr": 0.01,
+        "lr_scheduler": "poly",
+        "poly_exponent": 0.9,
         "is_2d": False
     }
 }

@@ -30,5 +30,5 @@ class nnUNetAdapter(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-def build_nnunet_model(in_channels=1, out_channels=2):
-    return nnUNetAdapter(in_channels=in_channels, out_channels=out_channels, deep_supervision=False)
+def build_nnunet_model(in_channels=1, out_channels=2, deep_supervision=False):
+    return nnUNetAdapter(in_channels=in_channels, out_channels=out_channels, deep_supervision=deep_supervision)

@@ -25,5 +25,7 @@ def get_model(arch_key, in_channels=1, out_channels=2):
         return build_swin_unetr_model(in_channels, out_channels)
     elif arch_key == "F_nnUZoo":
         return build_nnuzoo_model(in_channels, out_channels)
+    elif arch_key == "G_nnUNet":
+        return build_nnunet_model(in_channels, out_channels, deep_supervision=True)
     else:
         raise ValueError(f"Unknown architecture key: {arch_key}")
