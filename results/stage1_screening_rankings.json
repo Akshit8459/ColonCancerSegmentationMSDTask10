@@ -1,0 +1,44 @@
+{
+    "rankings": [
+        {
+            "rank": 1,
+            "arch_key": "A_nnUNet",
+            "best_val_dice": 0.4605381152394403,
+            "early_terminated": false,
+            "total_elapsed_seconds": 8140.916686058044
+        },
+        {
+            "rank": 2,
+            "arch_key": "C_SwinUMamba",
+            "best_val_dice": 0.45865264455677107,
+            "early_terminated": true,
+            "total_elapsed_seconds": 11665.81607747078
+        },
+        {
+            "rank": 3,
+            "arch_key": "B_UMamba",
+            "best_val_dice": 0.42541757163410016,
+            "early_terminated": true,
+            "total_elapsed_seconds": 13807.186561822891
+        },
+        {
+            "rank": 4,
+            "arch_key": "E_SwinUNETR",
+            "best_val_dice": 0.40738538417563647,
+            "early_terminated": true,
+            "total_elapsed_seconds": 28823.55729985237
+        },
+        {
+            "rank": 5,
+            "arch_key": "D_SegMamba",
+            "best_val_dice": 0.3101305092781047,
+            "early_terminated": false,
+            "total_elapsed_seconds": 9028.195522069931
+        }
+    ],
+    "top_winner": "A_nnUNet",
+    "promoted_finalists": [
+        "A_nnUNet",
+        "C_SwinUMamba"
+    ]
+}

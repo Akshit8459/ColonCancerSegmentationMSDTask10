@@ -85,7 +85,7 @@ class CTDataset(Dataset):
         if augment:
             self.transform = Compose([
                 RandFlipd(keys=['image', 'label'], prob=0.3, spatial_axis=[0, 1, 2]),
-                RandRotated(keys=['image', 'label'], prob=0.2, range_x=0.05, range_y=0.05, range_z=0.05, mode=['bilinear', 'nearest']),
+                RandRotated(keys=['image', 'label'], prob=0.2, range_x=0.1, range_y=0.1, range_z=0.1, mode=['bilinear', 'nearest']),
                 RandZoomd(keys=['image', 'label'], prob=0.1, min_zoom=0.95, max_zoom=1.05, mode=['bilinear', 'nearest'])
             ])
         else:
@@ -105,7 +105,7 @@ class CTDataset(Dataset):
         pz, py, px = PATCH_SIZE
 
         fg_coords = np.argwhere(label[0] == 1)
-        if len(fg_coords) > 0 and np.random.rand() < 0.5:
+        if len(fg_coords) > 0 and np.random.rand() < 0.7:  #Sampling Patches positive
             fg_idx = np.random.choice(len(fg_coords))
             cz, cy, cx = fg_coords[fg_idx]
             sz = max(0, min(cz - pz // 2, z - pz)) if z > pz else 0

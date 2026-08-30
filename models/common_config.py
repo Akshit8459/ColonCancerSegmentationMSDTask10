@@ -41,7 +41,7 @@ FORCE_FALLBACK_TIER = 2          # Tier 2: Micro-batch 1 + 2x Grad Accumulation
 STAGE2_MAX_FINALISTS = 2         # Exp A (Anchor) + Stage 1 Winner
 EARLY_STOP_DICE_FLOOR = 0.45     # Epoch 15 early termination threshold in Stage 1
 
-TOTAL_EPOCHS = 150
+TOTAL_EPOCHS = 25
 VALIDATION_CADENCE_EPOCHS = 5
 
 # Safe maximum per-architecture batch sizes (measured on 32GB VRAM)
