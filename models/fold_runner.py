@@ -187,7 +187,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         try:
             torch._dynamo.config.cache_size_limit = 64
             torch._dynamo.config.suppress_errors = True
-            model = torch.compile(model, mode="reduce-overhead", dynamic=True)
+            model = torch.compile(model, mode="default", dynamic=True)
             print(" 🚀 Accelerated model with torch.compile!")
         except Exception as e:
             print(f" ⚠️ Could not compile model: {e}")
