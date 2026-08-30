@@ -216,7 +216,7 @@ def run_fold_training(arch_key, fold_idx, train_cases, val_cases, output_dir, is
         volume_cache = dict(cached_items)
 
     train_dataset = CTDataset(train_cases, volume_cache=volume_cache, augment=True)
-    num_patches_per_volume = 50  # 50 patches per volume (4200 samples/epoch)
+    num_patches_per_volume = 30  # 30 patches per volume (2520 samples/epoch)
     total_patches_per_epoch = len(train_cases) * num_patches_per_volume
 
     sampler = RandomSampler(train_dataset, replacement=True, num_samples=total_patches_per_epoch)
