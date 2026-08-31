@@ -35,7 +35,9 @@ def run_sliding_window(model, image, patch_size=(64, 128, 128), stride=0.75, dev
 
     def _predict(inputs):
         preds = model(inputs)
-        if isinstance(preds, (list, tuple)):
+        if isinstance(preds, torch.Tensor) and preds.dim() == 6:
+            preds = preds[:, :, 0] # Highest resolution scale output
+        elif isinstance(preds, (list, tuple)):
             preds = preds[0]
         return preds
 
