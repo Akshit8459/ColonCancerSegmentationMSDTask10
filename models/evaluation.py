@@ -33,18 +33,22 @@ def run_sliding_window(model, image, patch_size=(64, 128, 128), stride=0.75, dev
     overlap = max(0.01, 1.0 - stride)
     image = image.to(device)
 
+    def _predict(inputs):
+        preds = model(inputs)
+        if isinstance(preds, (list, tuple)):
+            preds = preds[0]
+        return preds
+
     def _single_pass(img_tensor):
         with torch.no_grad():
             out = sliding_window_inference(
                 inputs=img_tensor,
                 roi_size=patch_size,
                 sw_batch_size=1,
-                predictor=model,
+                predictor=_predict,
                 overlap=overlap,
                 mode="gaussian"
             )
-            if isinstance(out, (list, tuple)):
-                out = out[0]
             return out
 
     if not use_tta:
